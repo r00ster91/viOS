@@ -1,9 +1,6 @@
 [bits 16] ; real mode
 [org 0x7c00] ; load address
 
-xor ax, ax
-mov ds, ax
-
 ;;jmp test
 
 ;
@@ -43,8 +40,8 @@ run_normal_mode:
     je run_insert_mode
     cmp al, 'a'
     je insert_after_cursor
-    ;cmp al, 'I'
-    ;je insert_before_first_word
+    cmp al, 'I'
+    je insert_before_first_word
     cmp al, 'A'
     je insert_at_end
 
@@ -108,7 +105,17 @@ insert_after_cursor:
     jng run_insert_mode
     mov byte [cursor_pos.col], dl
     jmp run_insert_mode
-;insert_before_first_word:
+insert_before_first_word:
+    mov si, buf
+    mov cl, -1
+.find_non_space:
+    inc cl
+    lodsb ; load (DS:SI) into AL and increment SI
+    cmp al, ' '
+    je .find_non_space
+.end:
+    mov [cursor_pos.col], cl
+    jmp run_insert_mode
 insert_at_end:
     mov dl, [buf_len]
     mov byte [cursor_pos.col], dl
