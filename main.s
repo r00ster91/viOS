@@ -1,8 +1,6 @@
 [bits 16] ; real mode
 [org 0x7c00] ; load address
 
-;;jmp test
-
 ;
 ; normal mode
 ;
@@ -19,7 +17,7 @@ run_normal_mode:
     ; read keypress (blocking)
     xor ah, ah
     int 0x16
-    ; evaluate input
+    ; cursor movement
     cmp al, 'h'
     je move_cursor_left
     cmp al, 'l'
@@ -36,8 +34,11 @@ run_normal_mode:
     je set_cursor_to_end
     cmp al, '_'
     je set_cursor_to_before_first_word
+    ; text modification
     cmp al, 'x'
     je delete_char_after_cursor
+    cmp al, 'X'
+    je delete_char_before_cursor
     cmp al, 'i'
     je run_insert_mode
     cmp al, 'a'
@@ -80,33 +81,26 @@ set_cursor_to_before_first_word:
     jmp run_normal_mode
 delete_char_after_cursor:
     ; if buffer length is zero, do nothing
-    mov dl, [buf_len]
-    or dl, dl
+    cmp byte [buf_len], 0
     je run_normal_mode
     ; start at cursor column
     mov si, buf
     add si, [cursor_pos.col]
-.loop:
-    ; take the next character
-    mov dl, [si + 1]
-    ; and move it to the current
-    mov [si], dl
-    ; check if we're at the end
-    mov bx, buf
-    add bx, [buf_len]
-    cmp si, bx
-    inc si
-    jc .loop
-.end:
-    dec byte [buf_len]
-    ; if cursor column matches buffer length, move cursor to the left
-    mov dl, [cursor_pos.col]
-    cmp dl, [buf_len]
-    jne run_normal_mode
+    call delete_char_at_cursor_col_fn
+    jmp run_normal_mode
+delete_char_before_cursor:
+    ; if cursor column is zero, do nothing
+    cmp byte [cursor_pos.col], 0
+    je run_normal_mode
+    ; if buffer length is zero, do nothing
+    cmp byte [buf_len], 0
+    je run_normal_mode
+    ; start at cursor column
+    mov si, buf
+    add si, [cursor_pos.col]
+    dec si
+    call delete_char_at_cursor_col_fn
     dec byte [cursor_pos.col]
-    ; if cursor column underflowed, set to zero
-    jns run_normal_mode
-    mov byte [cursor_pos.col], 0
     jmp run_normal_mode
 insert_after_cursor:
     inc byte [cursor_pos.col]
@@ -136,6 +130,30 @@ set_cursor_to_before_first_word_fn:
     mov [cursor_pos.col], cl
     ret
 
+delete_char_at_cursor_col_fn:
+.loop:
+    ; take the next character
+    mov dl, [si + 1]
+    ; and move it to the current
+    mov [si], dl
+    ; check if we're at the end
+    mov bx, buf
+    add bx, [buf_len]
+    cmp si, bx
+    inc si
+    jc .loop
+.end:
+    dec byte [buf_len]
+    ; if cursor column matches buffer length, move cursor to the left
+    mov dl, [cursor_pos.col]
+    cmp dl, [buf_len]
+    jne run_normal_mode
+    dec byte [cursor_pos.col]
+    ; if cursor column underflowed, set to zero
+    jns run_normal_mode
+    mov byte [cursor_pos.col], 0
+    ret
+
 ;
 ; insert mode
 ;
@@ -157,11 +175,10 @@ run_insert_mode:
     je enter_normal_mode
     cmp al, `\t` ; tab
     je insert_four_spaces
-
     ; ignore input that would corrupt state
     cmp al, `\b` ; backspace
     je run_insert_mode
-    cmp al, 0 ; delete
+    or al, al ; delete
     je run_insert_mode
     cmp al, `\r` ; enter
     je run_insert_mode
@@ -236,24 +253,6 @@ update_fn:
     mov dl, [cursor_pos.col] ; column
     int 0x10
     ret
-
-test:
-    inc byte [buf_len]
-    mov byte [buf], 'A'
-
-print:
-    mov si, buf
-    mov cl, [buf_len]
-.loop:
-    or cl, cl
-    je .end
-    lodsb
-    mov ah, 0x0e
-    int 0x10
-    dec cl
-    jmp .loop
-.end:
-jmp $
 
 buf_len: db 0
 cursor_pos:
