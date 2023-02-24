@@ -138,8 +138,35 @@ run_insert_mode:
     xor ah, ah
     int 0x16
     ; evaluate input
-    cmp al, `\e`
+    cmp al, `\e` ; escape
     je enter_normal_mode
+    cmp al, `\t` ; tab
+    je insert_four_spaces
+
+    ; ignore input that would corrupt state
+    cmp al, `\b` ; backspace
+    je run_insert_mode
+    cmp al, 0 ; delete
+    je run_insert_mode
+    cmp al, `\r` ; enter
+    je run_insert_mode
+
+    call insert_char
+    jmp run_insert_mode
+
+enter_normal_mode:
+    dec byte [cursor_pos.col]
+    ; on underflow, set to zero
+    jns run_normal_mode
+    mov byte [cursor_pos.col], 0
+    jmp run_normal_mode
+insert_four_spaces:
+    mov al, ' '
+    call insert_char
+    call insert_char
+    call insert_char
+    call insert_char
+    jmp run_insert_mode
 
     ; insert the character in AL
 insert_char:
@@ -163,14 +190,7 @@ insert_char:
     inc byte [buf_len]
     mov [si + 2], al
     inc byte [cursor_pos.col]
-    jmp run_insert_mode
-
-enter_normal_mode:
-    dec byte [cursor_pos.col]
-    ; on underflow, set to zero
-    jns run_normal_mode
-    mov byte [cursor_pos.col], 0
-    jmp run_normal_mode
+    ret
 
 ;
 ; presentation 
