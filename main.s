@@ -8,7 +8,7 @@
 ;
 
 run_normal_mode:
-    call update
+    call update_fn
 
     ; make the cursor fill the cell
     mov ah, 0x01
@@ -30,12 +30,14 @@ run_normal_mode:
     ;je advance_cursor_by_word_space
     ;cmp al, 'd'
     ;je delete_
-    cmp al, 'x'
-    je delete_char_on_cursor
     cmp al, '0'
     je set_cursor_to_start
     cmp al, '$'
     je set_cursor_to_end
+    cmp al, '_'
+    je set_cursor_to_before_first_word
+    cmp al, 'x'
+    je delete_char_after_cursor
     cmp al, 'i'
     je run_insert_mode
     cmp al, 'a'
@@ -49,42 +51,18 @@ run_normal_mode:
 
 move_cursor_left:
     dec byte [cursor_pos.col]
-    ; on underflow, set to zero
+    ; if cursor column underflowed, set to zero
     jns run_normal_mode
     mov byte [cursor_pos.col], 0
     jmp run_normal_mode
 move_cursor_right:
-    inc byte [cursor_pos.col]
-    ; if buffer length is exceeded, set to buffer length
     mov dl, [buf_len]
-    dec dl
-    cmp byte [cursor_pos.col], dl
-    jng run_normal_mode
-    mov byte [cursor_pos.col], dl
-    jmp run_normal_mode
-delete_char_on_cursor:
-    ; if buffer length is zero, do nothing
-    mov dl, [buf_len]
+    ; if line is empty, do nothing
     or dl, dl
     je run_normal_mode
-    ; start at cursor column
-    mov si, buf
-    add si, [cursor_pos.col]
-.loop:
-    ; take the next character 
-    mov dl, [si + 1]
-    ; and move it to the current
-    mov [si], dl 
-    ; check if we're at the end
-    mov bx, buf
-    add bx, [buf_len]
-    cmp si, bx
-    inc si
-    jc .loop
-.end:
-    dec byte [buf_len]
-    ; if cursor column exceeded buffer length, set to buffer length
-    mov dl, [buf_len]
+    inc byte [cursor_pos.col]
+    dec dl
+    ; if cursor column exceeds buffer length, set to buffer length
     cmp byte [cursor_pos.col], dl
     jng run_normal_mode
     mov byte [cursor_pos.col], dl
@@ -97,15 +75,56 @@ set_cursor_to_end:
     dec dl
     mov byte [cursor_pos.col], dl
     jmp run_normal_mode
+set_cursor_to_before_first_word:
+    call set_cursor_to_before_first_word_fn
+    jmp run_normal_mode
+delete_char_after_cursor:
+    ; if buffer length is zero, do nothing
+    mov dl, [buf_len]
+    or dl, dl
+    je run_normal_mode
+    ; start at cursor column
+    mov si, buf
+    add si, [cursor_pos.col]
+.loop:
+    ; take the next character
+    mov dl, [si + 1]
+    ; and move it to the current
+    mov [si], dl
+    ; check if we're at the end
+    mov bx, buf
+    add bx, [buf_len]
+    cmp si, bx
+    inc si
+    jc .loop
+.end:
+    dec byte [buf_len]
+    ; if cursor column matches buffer length, move cursor to the left
+    mov dl, [cursor_pos.col]
+    cmp dl, [buf_len]
+    jne run_normal_mode
+    dec byte [cursor_pos.col]
+    ; if cursor column underflowed, set to zero
+    jns run_normal_mode
+    mov byte [cursor_pos.col], 0
+    jmp run_normal_mode
 insert_after_cursor:
     inc byte [cursor_pos.col]
-    ; if buffer length is exceeded, set to buffer length
+    ; if cursor column exceeds buffer length, set to buffer length
     mov dl, [buf_len]
     cmp byte [cursor_pos.col], dl
     jng run_insert_mode
     mov byte [cursor_pos.col], dl
     jmp run_insert_mode
 insert_before_first_word:
+    call set_cursor_to_before_first_word_fn
+    jmp run_insert_mode
+insert_at_end:
+    mov dl, [buf_len]
+    mov byte [cursor_pos.col], dl
+    jmp run_insert_mode
+
+set_cursor_to_before_first_word_fn:
     mov si, buf
     mov cl, -1
 .find_non_space:
@@ -115,25 +134,21 @@ insert_before_first_word:
     je .find_non_space
 .end:
     mov [cursor_pos.col], cl
-    jmp run_insert_mode
-insert_at_end:
-    mov dl, [buf_len]
-    mov byte [cursor_pos.col], dl
-    jmp run_insert_mode
-    
+    ret
+
 ;
 ; insert mode
 ;
 
 run_insert_mode:
-    call update
+    call update_fn
 
     ; make the cursor fill the bottom quarter of the cell
     mov ah, 0x01
     mov ch, 0b0000_1011
     mov cl, 0b0001_1111
     int 0x10
-    
+
     ; read keypress (blocking)
     xor ah, ah
     int 0x16
@@ -151,7 +166,7 @@ run_insert_mode:
     cmp al, `\r` ; enter
     je run_insert_mode
 
-    call insert_char
+    call insert_char_fn
     jmp run_insert_mode
 
 enter_normal_mode:
@@ -162,23 +177,23 @@ enter_normal_mode:
     jmp run_normal_mode
 insert_four_spaces:
     mov al, ' '
-    call insert_char
-    call insert_char
-    call insert_char
-    call insert_char
+    call insert_char_fn
+    call insert_char_fn
+    call insert_char_fn
+    call insert_char_fn
     jmp run_insert_mode
 
     ; insert the character in AL
-insert_char:
+insert_char_fn:
     ; start at the end of the buffer
     mov si, buf
     add si, [buf_len]
     dec si
 .loop:
-    ; take the current character 
+    ; take the current character
     mov dl, [si]
     ; and move it to the next
-    mov [si + 1], dl 
+    mov [si + 1], dl
     ; check if we're at the end
     mov bx, buf
     add bx, [cursor_pos.col]
@@ -193,15 +208,15 @@ insert_char:
     ret
 
 ;
-; presentation 
-; 
+; presentation
+;
 
-update:
+update_fn:
     ; set screen resolution to 80x25, clear screen, and set cursor position to (0, 0)
     xor ah, ah
     mov al, 2
     int 0x10
-    
+
     ; update screen content
     mov si, buf
     mov ah, 0x0e ; set up for writing
