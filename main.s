@@ -178,14 +178,13 @@ update:
     ; update screen content
     mov si, buf
     mov ah, 0x0e ; set up for writing
-    xor cl, cl
+    mov cl, -1
 .loop:
-    cmp cl, [buf_len]
-    je .end
+    inc cl
     lodsb ; load (DS:SI) into AL and increment SI
     int 0x10 ; print AL
-    inc cl
-    jmp .loop
+    cmp cl, [buf_len]
+    jne .loop
 .end:
     ; set cursor position
     mov ah, 0x02
